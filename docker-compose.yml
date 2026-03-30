@@ -3,21 +3,19 @@ services:
     build: .
     init: true
     restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
     environment:
       - TWILIO_SID=${TWILIO_SID}
       - TWILIO_TOKEN=${TWILIO_TOKEN}
       - TWILIO_NUMBER=${TWILIO_NUMBER}
       - REDIS_HOST=redis
-    ports:
-      - "3000:3000" # Twilio will hit this
-    depends_on:
-      - redis
-    environment:
       - TZ=Europe/Stockholm
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
 
   redis:
     image: redis:alpine
     restart: always
-    # We don't expose ports here; only 'app' needs to see it
