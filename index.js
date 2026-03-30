@@ -28,9 +28,16 @@ app.post('/sms', async (req, res) => {
   }
 
   // FORMAT "Pick up dry cleaning : 5pm"
-  const [task, timeStr] = incomingSms.split(':').map(s => s.trim());
+  const lastColon = incomingSms.lastIndexOf(':');
+  const task = (lastColon === -1 ? incomingSms : incomingSms.slice(0, lastColon)).trim();
+  const timeStr = lastColon === -1 ? null : incomingSms.slice(lastColon + 1).trim() || null;
+
+  if (!task) {
+    return res.send('<Response><Message>Please include a reminder message. Format: "Pick up dry cleaning : 5pm"</Message></Response>');
+  }
 
   // Try parsing as-is, then with "in " prefix for bare durations like "10 minutes"
+  const defaulted = !timeStr;
   const targetDate = chrono.parseDate(timeStr || "in 1 hour")
     || chrono.parseDate(`in ${timeStr}`);
 
@@ -48,7 +55,8 @@ app.post('/sms', async (req, res) => {
   }, { delay: delay });
 
   console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's');
-  res.send(`<Response><Message>Got it. I'll remind you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}</Message></Response>`);
+  const timeNote = defaulted ? ' (no time given, assuming 1 hour)' : '';
+  res.send(`<Response><Message>Got it. I'll remind you about "${task}" at ${targetDate.toLocaleTimeString()}${timeNote}. To cancel, text: cancel ${job.id}</Message></Response>`);
 });
 
 const worker = new Worker('reminders', async job => {
