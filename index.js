@@ -9,9 +9,8 @@ app.use(express.urlencoded({ extended: false }));
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
 const reminderQueue = new Queue('reminders', { connection: { host: 'redis' } });
 
-// 1. RECEIVE THE SMS
 app.post('/sms', async (req, res) => {
-  const incomingSms = req.body.Body; // e.g. "Pick up dry cleaning : 5pm"
+  const incomingSms = req.body.Body; // FORMAT "Pick up dry cleaning : 5pm"
   const sender = req.body.From;
 
   const [task, timeStr] = incomingSms.split(':').map(s => s.trim());
@@ -23,16 +22,15 @@ app.post('/sms', async (req, res) => {
 
   const delay = targetDate.getTime() - Date.now();
 
-  // Schedule the job in the FOSS queue (Redis)
+  // Schedule the job in Redis
   await reminderQueue.add('send-reminder', { 
     to: sender, 
-    message: `⏰ REMINDER: ${task}` 
+    message: `REMINDER: ${task}` 
   }, { delay: delay });
 
   res.send(`<Response><Message>Got it. I'll remind you about "${task}" at ${targetDate.toLocaleTimeString()}.</Message></Response>`);
 });
 
-// 2. THE WORKER (The part that actually sends the reminder)
 const worker = new Worker('reminders', async job => {
   await client.messages.create({
     body: job.data.message,

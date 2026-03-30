@@ -12,6 +12,10 @@ services:
       - "3000:3000" # Twilio will hit this
     depends_on:
       - redis
+    environment:
+      - TZ=Europe/Stockholm
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
 
   redis:
     image: redis:alpine
