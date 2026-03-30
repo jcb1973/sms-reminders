@@ -1,6 +1,7 @@
 services:
   app:
     build: .
+    init: true
     restart: always
     environment:
       - TWILIO_SID=${TWILIO_SID}
