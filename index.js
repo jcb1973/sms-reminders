@@ -1,5 +1,6 @@
 const express = require('express');
 const { Queue, Worker } = require('bullmq');
+const IORedis = require('ioredis');
 const chrono = require('chrono-node');
 const twilio = require('twilio');
 
@@ -15,8 +16,9 @@ app.use(express.urlencoded({ extended: false }));
 
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
 const redisConnection = { host: process.env.REDIS_HOST };
+const redis = new IORedis(redisConnection);
 const reminderQueue = new Queue('reminders', { connection: redisConnection });
-const pendingTasks = new Map(); // phone -> task awaiting a time
+const PENDING_TTL = 300; // 5 minutes
 
 // Expand shorthand like "10m", "2h", "30s", "1d" to chrono-friendly strings
 function expandTime(str) {
@@ -54,8 +56,9 @@ app.post('/sms', twilio.webhook({ validate: true }), async (req, res) => {
   }
 
   // If this user has a pending task, treat this message as the time
-  if (pendingTasks.has(sender)) {
-    const task = pendingTasks.get(sender);
+  const pendingKey = `pending:${sender}`;
+  const pendingTask = await redis.get(pendingKey);
+  if (pendingTask) {
     const expanded = expandTime(incomingSms);
     const targetDate = chrono.parseDate(expanded) || chrono.parseDate(`in ${expanded}`);
     if (!targetDate) {
@@ -66,13 +69,28 @@ app.post('/sms', twilio.webhook({ validate: true }), async (req, res) => {
     if (delay <= 0) {
       return res.send(twiml('That time is in the past. Try a future time like "5pm" or "in 2 hours".'));
     }
-    pendingTasks.delete(sender);
+    await redis.del(pendingKey);
     const job = await reminderQueue.add('send-reminder', {
       to: sender,
-      message: `REMINDER: ${task}`
-    }, { delay: delay });
-    console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's');
-    return res.send(twiml(`Got it. I'll remind you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
+      message: `REMINDER: ${pendingTask}`
+    }, { delay: delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } });
+    console.log('Scheduled reminder', job.id, '- task:', pendingTask, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's');
+    return res.send(twiml(`Got it. I'll remind you about "${pendingTask}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
+  }
+
+  // Handle list command
+  if (/^list$/i.test(incomingSms)) {
+    const jobs = await reminderQueue.getJobs(['delayed']);
+    const userJobs = jobs.filter(j => j.data.to === sender);
+    if (userJobs.length === 0) {
+      return res.send(twiml('You have no upcoming reminders.'));
+    }
+    const lines = userJobs.map(j => {
+      const task = j.data.message.replace('REMINDER: ', '');
+      const when = new Date(j.timestamp + j.delay).toLocaleString();
+      return `- ${task} (${when}) [cancel ${j.id}]`;
+    });
+    return res.send(twiml(`Your reminders:\n${lines.join('\n')}`));
   }
 
   // FORMAT "Pick up dry cleaning : 5pm" or just "Pick up dry cleaning"
@@ -86,7 +104,7 @@ app.post('/sms', twilio.webhook({ validate: true }), async (req, res) => {
 
   // No time provided — ask for it
   if (!timeStr) {
-    pendingTasks.set(sender, task);
+    await redis.set(`pending:${sender}`, task, 'EX', PENDING_TTL);
     console.log('Pending task for', sender, ':', task);
     return res.send(twiml(`When should I remind you about "${task}"?`));
   }
@@ -110,7 +128,7 @@ app.post('/sms', twilio.webhook({ validate: true }), async (req, res) => {
   const job = await reminderQueue.add('send-reminder', {
     to: sender,
     message: `REMINDER: ${task}`
-  }, { delay: delay });
+  }, { delay: delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } });
 
   console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's');
   res.send(twiml(`Got it. I'll remind you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
