@@ -3,11 +3,19 @@ const { Queue, Worker } = require('bullmq');
 const chrono = require('chrono-node');
 const twilio = require('twilio');
 
+const requiredEnvVars = ['TWILIO_SID', 'TWILIO_TOKEN', 'TWILIO_NUMBER', 'REDIS_HOST'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    throw new Error(`Missing required environment variable: ${envVar}`);
+  }
+}
+
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-const reminderQueue = new Queue('reminders', { connection: { host: 'redis' } });
+const redisConnection = { host: process.env.REDIS_HOST };
+const reminderQueue = new Queue('reminders', { connection: redisConnection });
 const pendingTasks = new Map(); // phone -> task awaiting a time
 
 // Expand shorthand like "10m", "2h", "30s", "1d" to chrono-friendly strings
@@ -27,7 +35,7 @@ function twiml(message) {
   return `<Response><Message>${escapeXml(message)}</Message></Response>`;
 }
 
-app.post('/sms', twilio.webhook({ validate: !!process.env.TWILIO_TOKEN }), async (req, res) => {
+app.post('/sms', twilio.webhook({ validate: true }), async (req, res) => {
   console.log('Incoming SMS from', req.body.From, ':', req.body.Body);
   const incomingSms = req.body.Body.trim();
   const sender = req.body.From;
@@ -116,6 +124,6 @@ const worker = new Worker('reminders', async job => {
     to: job.data.to
   });
   console.log('Reminder', job.id, 'sent successfully');
-}, { connection: { host: 'redis' } });
+}, { connection: redisConnection });
 
 app.listen(3000, () => console.log('Reminder service online on port 3000'));
