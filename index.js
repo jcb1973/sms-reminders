@@ -10,6 +10,7 @@ const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
 const reminderQueue = new Queue('reminders', { connection: { host: 'redis' } });
 
 app.post('/sms', async (req, res) => {
+  console.log('Incoming SMS from', req.body.From, ':', req.body.Body);
   const incomingSms = req.body.Body.trim();
   const sender = req.body.From;
 
@@ -20,6 +21,7 @@ app.post('/sms', async (req, res) => {
     const job = await reminderQueue.getJob(jobId);
     if (job) {
       await job.remove();
+      console.log('Cancelled reminder', jobId);
       return res.send(`<Response><Message>Cancelled reminder "${job.data.message.replace('REMINDER: ', '')}".</Message></Response>`);
     }
     return res.send(`<Response><Message>No reminder found with ID ${jobId}.</Message></Response>`);
@@ -33,6 +35,7 @@ app.post('/sms', async (req, res) => {
     || chrono.parseDate(`in ${timeStr}`);
 
   if (!targetDate) {
+    console.log('Could not parse time:', timeStr);
     return res.send('<Response><Message>I couldn\'t figure out that time. Try "5pm" or "in 2 hours".</Message></Response>');
   }
 
@@ -44,15 +47,18 @@ app.post('/sms', async (req, res) => {
     message: `REMINDER: ${task}`
   }, { delay: delay });
 
+  console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's');
   res.send(`<Response><Message>Got it. I'll remind you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}</Message></Response>`);
 });
 
 const worker = new Worker('reminders', async job => {
+  console.log('Sending reminder', job.id, 'to', job.data.to, ':', job.data.message);
   await client.messages.create({
     body: job.data.message,
     from: process.env.TWILIO_NUMBER,
     to: job.data.to
   });
+  console.log('Reminder', job.id, 'sent successfully');
 }, { connection: { host: 'redis' } });
 
 app.listen(3000, () => console.log('Reminder service online on port 3000'));
