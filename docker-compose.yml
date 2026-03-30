@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    restart: always
+    environment:
+      - TWILIO_SID=${TWILIO_SID}
+      - TWILIO_TOKEN=${TWILIO_TOKEN}
+      - TWILIO_NUMBER=${TWILIO_NUMBER}
+      - REDIS_HOST=redis
+    ports:
+      - "3000:3000" # Twilio will hit this
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    restart: always
+    # We don't expose ports here; only 'app' needs to see it
