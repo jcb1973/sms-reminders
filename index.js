@@ -37,7 +37,7 @@ function twiml(message) {
   return `<Response><Message>${escapeXml(message)}</Message></Response>`;
 }
 
-app.post('/sms', twilio.webhook({ validate: true, authToken: process.env.TWILIO_TOKEN, url: process.env.WEBHOOK_URL }), async (req, res) => {
+app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }, process.env.TWILIO_TOKEN), async (req, res) => {
   console.log('Incoming SMS from', req.body.From, ':', req.body.Body);
   const incomingSms = req.body.Body.trim();
   const sender = req.body.From;
