@@ -20,6 +20,12 @@ const redis = new IORedis(redisConnection);
 const reminderQueue = new Queue('reminders', { connection: redisConnection });
 const PENDING_TTL = 300; // 5 minutes
 
+// Extract !call flag from a string, return { text, call }
+function parseCallFlag(str) {
+  const call = /!call\b/i.test(str);
+  return { text: str.replace(/!call\b/i, '').trim(), call };
+}
+
 // Expand shorthand like "10m", "2h", "30s", "1d" to chrono-friendly strings
 function expandTime(str) {
   return str.replace(/(\d+)\s*(s|m|h|d)\b/gi, (_, n, unit) => {
@@ -59,7 +65,8 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
   const pendingKey = `pending:${sender}`;
   const pendingTask = await redis.get(pendingKey);
   if (pendingTask) {
-    const expanded = expandTime(incomingSms);
+    const { text: timeInput, call } = parseCallFlag(incomingSms);
+    const expanded = expandTime(timeInput);
     const targetDate = chrono.parseDate(expanded) || chrono.parseDate(`in ${expanded}`);
     if (!targetDate) {
       console.log('Could not parse time for pending task:', incomingSms);
@@ -72,10 +79,12 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
     await redis.del(pendingKey);
     const job = await reminderQueue.add('send-reminder', {
       to: sender,
-      message: `REMINDER: ${pendingTask}`
+      message: `REMINDER: ${pendingTask}`,
+      call
     }, { delay: delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } });
-    console.log('Scheduled reminder', job.id, '- task:', pendingTask, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's');
-    return res.send(twiml(`Got it. I'll remind you about "${pendingTask}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
+    const method = call ? 'call' : 'remind';
+    console.log('Scheduled reminder', job.id, '- task:', pendingTask, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's', call ? '(call)' : '');
+    return res.send(twiml(`Got it. I'll ${method} you about "${pendingTask}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
   }
 
   // Handle list command
@@ -88,7 +97,8 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
     const lines = userJobs.map(j => {
       const task = j.data.message.replace('REMINDER: ', '');
       const when = new Date(j.timestamp + j.delay).toLocaleString();
-      return `- ${task} (${when}) [cancel ${j.id}]`;
+      const mode = j.data.call ? ' (call)' : '';
+      return `- ${task}${mode} (${when}) [cancel ${j.id}]`;
     });
     return res.send(twiml(`Your reminders:\n${lines.join('\n')}`));
   }
@@ -110,7 +120,8 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
   }
 
   // Try parsing as-is, then with "in " prefix for bare durations like "10 minutes"
-  const expanded = expandTime(timeStr);
+  const { text: cleanTime, call } = parseCallFlag(timeStr);
+  const expanded = expandTime(cleanTime);
   const targetDate = chrono.parseDate(expanded) || chrono.parseDate(`in ${expanded}`);
 
   if (!targetDate) {
@@ -127,20 +138,31 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
   // Schedule the job in Redis
   const job = await reminderQueue.add('send-reminder', {
     to: sender,
-    message: `REMINDER: ${task}`
+    message: `REMINDER: ${task}`,
+    call
   }, { delay: delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } });
 
-  console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's');
-  res.send(twiml(`Got it. I'll remind you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
+  const method = call ? 'call' : 'remind';
+  console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's', call ? '(call)' : '');
+  res.send(twiml(`Got it. I'll ${method} you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
 });
 
 const worker = new Worker('reminders', async job => {
-  console.log('Sending reminder', job.id, 'to', job.data.to, ':', job.data.message);
-  await client.messages.create({
-    body: job.data.message,
-    from: process.env.TWILIO_NUMBER,
-    to: job.data.to
-  });
+  const { to, message, call } = job.data;
+  console.log(call ? 'Calling' : 'Texting', job.id, 'to', to, ':', message);
+  if (call) {
+    await client.calls.create({
+      to,
+      from: process.env.TWILIO_CALL_NUMBER,
+      twiml: `<Response><Say>${escapeXml(message)}</Say></Response>`
+    });
+  } else {
+    await client.messages.create({
+      body: message,
+      from: process.env.TWILIO_NUMBER,
+      to
+    });
+  }
   console.log('Reminder', job.id, 'sent successfully');
 }, { connection: redisConnection });
 

@@ -21,6 +21,7 @@ services:
       - TWILIO_SID=${TWILIO_SID}
       - TWILIO_TOKEN=${TWILIO_TOKEN}
       - TWILIO_NUMBER=${TWILIO_NUMBER}
+      - TWILIO_CALL_NUMBER=${TWILIO_CALL_NUMBER}
       - REDIS_HOST=redis
       - WEBHOOK_URL=${WEBHOOK_URL}
       - TZ=Europe/Stockholm
