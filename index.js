@@ -104,9 +104,9 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
   }
 
   // FORMAT "Pick up dry cleaning : 5pm" or just "Pick up dry cleaning"
-  const lastColon = incomingSms.lastIndexOf(':');
+  const lastColon = incomingSms.lastIndexOf(' : ');
   const task = (lastColon === -1 ? incomingSms : incomingSms.slice(0, lastColon)).trim();
-  const timeStr = lastColon === -1 ? null : incomingSms.slice(lastColon + 1).trim() || null;
+  const timeStr = lastColon === -1 ? null : incomingSms.slice(lastColon + 3).trim() || null;
 
   if (!task) {
     return res.send(twiml('Please include a reminder message. Format: "Pick up dry cleaning : 5pm"'));
