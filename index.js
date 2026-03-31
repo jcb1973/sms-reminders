@@ -151,11 +151,13 @@ const worker = new Worker('reminders', async job => {
   const { to, message, call } = job.data;
   console.log(call ? 'Calling' : 'Texting', job.id, 'to', to, ':', message);
   if (call) {
-    await client.calls.create({
+    console.log('Using TWILIO_CALL_NUMBER:', process.env.TWILIO_CALL_NUMBER);
+    const result = await client.calls.create({
       to,
       from: process.env.TWILIO_CALL_NUMBER,
       twiml: `<Response><Say>${escapeXml(message)}</Say></Response>`
     });
+    console.log('Call SID:', result.sid, 'Status:', result.status);
   } else {
     await client.messages.create({
       body: message,
@@ -165,5 +167,9 @@ const worker = new Worker('reminders', async job => {
   }
   console.log('Reminder', job.id, 'sent successfully');
 }, { connection: redisConnection });
+
+worker.on('failed', (job, err) => {
+  console.error('Job', job?.id, 'failed:', err.message);
+});
 
 app.listen(3000, () => console.log('Reminder service online on port 3000'));
