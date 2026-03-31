@@ -1,8 +1,8 @@
 const express = require('express');
 const { Queue, Worker } = require('bullmq');
 const IORedis = require('ioredis');
-const chrono = require('chrono-node');
 const twilio = require('twilio');
+const { parseCallFlag, parseTime } = require('./parse');
 
 const requiredEnvVars = ['TWILIO_SID', 'TWILIO_TOKEN', 'TWILIO_NUMBER', 'REDIS_HOST'];
 for (const envVar of requiredEnvVars) {
@@ -19,20 +19,6 @@ const redisConnection = { host: process.env.REDIS_HOST };
 const redis = new IORedis(redisConnection);
 const reminderQueue = new Queue('reminders', { connection: redisConnection });
 const PENDING_TTL = 300; // 5 minutes
-
-// Extract !call flag from a string, return { text, call }
-function parseCallFlag(str) {
-  const call = /!call\b/i.test(str);
-  return { text: str.replace(/!call\b/i, '').trim(), call };
-}
-
-// Expand shorthand like "10m", "2h", "30s", "1d" to chrono-friendly strings
-function expandTime(str) {
-  return str.replace(/(\d+)\s*(s|m|h|d)\b/gi, (_, n, unit) => {
-    const units = { s: 'seconds', m: 'minutes', h: 'hours', d: 'days' };
-    return `${n} ${units[unit.toLowerCase()]}`;
-  });
-}
 
 // Escape user input for safe inclusion in TwiML XML
 function escapeXml(str) {
@@ -66,8 +52,7 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
   const pendingTask = await redis.get(pendingKey);
   if (pendingTask) {
     const { text: timeInput, call } = parseCallFlag(incomingSms);
-    const expanded = expandTime(timeInput);
-    const targetDate = chrono.parseDate(expanded) || chrono.parseDate(`in ${expanded}`);
+    const targetDate = parseTime(timeInput);
     if (!targetDate) {
       console.log('Could not parse time for pending task:', incomingSms);
       return res.send(twiml('I couldn\'t figure out that time. Try "5pm" or "in 2 hours".'));
@@ -121,8 +106,7 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
 
   // Try parsing as-is, then with "in " prefix for bare durations like "10 minutes"
   const { text: cleanTime, call } = parseCallFlag(timeStr);
-  const expanded = expandTime(cleanTime);
-  const targetDate = chrono.parseDate(expanded) || chrono.parseDate(`in ${expanded}`);
+  const targetDate = parseTime(cleanTime);
 
   if (!targetDate) {
     console.log('Could not parse time:', timeStr);
