@@ -1,10 +1,18 @@
 services:
+  caddy:
+    image: caddy:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+    command: caddy reverse-proxy --from ${DOMAIN} --to app:3000
+
   app:
     build: .
     init: true
     restart: always
-    ports:
-      - "3000:3000"
     depends_on:
       - redis
     volumes:
@@ -20,3 +28,6 @@ services:
   redis:
     image: redis:alpine
     restart: always
+
+volumes:
+  caddy_data:
