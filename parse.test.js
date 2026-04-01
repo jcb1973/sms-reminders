@@ -174,4 +174,32 @@ describe('parseTime', () => {
   test('returns null for unparseable input', () => {
     expect(parseTime('asdfghjkl')).toBeNull();
   });
+
+  test('rejects garbage words with numbers like "10 bananas"', () => {
+    expect(parseTime('10 bananas')).toBeNull();
+  });
+
+  test('rejects garbage words with date context like "3 apples tomorrow"', () => {
+    expect(parseTime('3 apples tomorrow')).toBeNull();
+  });
+
+  test('rejects invalid time "2500 tomorrow"', () => {
+    expect(parseTime('2500 tomorrow')).toBeNull();
+  });
+
+  test('parses "tomorrow morning" as early morning', () => {
+    const result = parseTime('tomorrow morning');
+    expect(result).not.toBeNull();
+    expect(result.getHours()).toBeLessThan(12);
+  });
+
+  test('parses "tomorrow evening" as evening', () => {
+    const result = parseTime('tomorrow evening');
+    expect(result).not.toBeNull();
+    expect(result.getHours()).toBeGreaterThanOrEqual(12);
+  });
+
+  test('bare "tomorrow" with no time returns null', () => {
+    expect(parseTime('tomorrow')).toBeNull();
+  });
 });

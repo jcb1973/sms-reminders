@@ -4,7 +4,7 @@ const IORedis = require('ioredis');
 const twilio = require('twilio');
 const { parseCallFlag, parseTime } = require('./parse');
 
-const requiredEnvVars = ['TWILIO_SID', 'TWILIO_TOKEN', 'TWILIO_NUMBER', 'REDIS_HOST'];
+const requiredEnvVars = ['TWILIO_SID', 'TWILIO_TOKEN', 'TWILIO_NUMBER', 'REDIS_HOST', 'WEBHOOK_URL'];
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
     throw new Error(`Missing required environment variable: ${envVar}`);
@@ -90,7 +90,7 @@ async function handlePendingReply(sender, incomingSms) {
 
 async function handleList(sender, incomingSms) {
   if (!/^list$/i.test(incomingSms)) return null;
-  const jobs = await reminderQueue.getJobs(['delayed']);
+  const jobs = await reminderQueue.getJobs(['delayed', 'waiting', 'active', 'retry']);
   const userJobs = jobs.filter(j => j.data.to === sender);
   if (userJobs.length === 0) {
     return twiml('You have no upcoming reminders.');
@@ -146,8 +146,8 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
 
     const response =
       await handleCancel(sender, incomingSms) ||
-      await handlePendingReply(sender, incomingSms) ||
       await handleList(sender, incomingSms) ||
+      await handlePendingReply(sender, incomingSms) ||
       await handleNewReminder(sender, incomingSms);
 
     res.send(response);
