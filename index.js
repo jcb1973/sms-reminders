@@ -30,6 +30,7 @@ function twiml(message) {
 }
 
 app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }, process.env.TWILIO_TOKEN), async (req, res) => {
+  try {
   console.log('Incoming SMS from', req.body.From, ':', req.body.Body);
   const incomingSms = req.body.Body.trim();
   const sender = req.body.From;
@@ -61,12 +62,15 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
     if (delay <= 0) {
       return res.send(twiml('That time is in the past. Try a future time like "5pm" or "in 2 hours".'));
     }
-    await redis.del(pendingKey);
+    if (call && !process.env.TWILIO_CALL_NUMBER) {
+      return res.send(twiml('Voice calls are not configured. Remove !call and try again.'));
+    }
     const job = await reminderQueue.add('send-reminder', {
       to: sender,
       message: `REMINDER: ${pendingTask}`,
       call
     }, { delay: delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } });
+    await redis.del(pendingKey);
     const method = call ? 'call' : 'remind';
     console.log('Scheduled reminder', job.id, '- task:', pendingTask, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's', call ? '(call)' : '');
     return res.send(twiml(`Got it. I'll ${method} you about "${pendingTask}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
@@ -106,6 +110,11 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
 
   // Try parsing as-is, then with "in " prefix for bare durations like "10 minutes"
   const { text: cleanTime, call } = parseCallFlag(timeStr);
+
+  if (call && !process.env.TWILIO_CALL_NUMBER) {
+    return res.send(twiml('Voice calls are not configured. Remove !call and try again.'));
+  }
+
   const targetDate = parseTime(cleanTime);
 
   if (!targetDate) {
@@ -129,6 +138,10 @@ app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }
   const method = call ? 'call' : 'remind';
   console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's', call ? '(call)' : '');
   res.send(twiml(`Got it. I'll ${method} you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
+  } catch (err) {
+    console.error('Error handling SMS:', err);
+    res.status(500).send(twiml('Something went wrong. Please try again.'));
+  }
 });
 
 const worker = new Worker('reminders', async job => {

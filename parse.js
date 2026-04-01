@@ -36,6 +36,12 @@ function moveLeadingTime(str) {
   });
 }
 
+// Check if chrono actually assigned a time (hour/minute) rather than just a date
+function hasExplicitTime(result) {
+  if (!result || !result.start) return false;
+  return result.start.isCertain('hour') || result.start.isCertain('minute');
+}
+
 // Full pipeline: parse a user time string into a Date
 function parseTime(str) {
   const expanded = expandBareTime(expandTime(str));
@@ -43,12 +49,21 @@ function parseTime(str) {
   // If chrono parsed something but skipped a leading number, the number was
   // probably meant as the time — retry with "at" so chrono treats it as one.
   if (results.length > 0 && results[0].index > 0 && /^\d/.test(expanded)) {
-    const withAt = chrono.parseDate(moveLeadingTime(expanded));
-    if (withAt) return withAt;
+    const retried = chrono.parse(moveLeadingTime(expanded));
+    if (retried.length > 0 && hasExplicitTime(retried[0])) return retried[0].date();
   }
-  if (results.length > 0) return results[0].date();
-  return chrono.parseDate(moveLeadingTime(expanded))
-    || chrono.parseDate(`in ${expanded}`);
+  // Only accept results that include an explicit time component.
+  // Without this, "2500 tomorrow" would silently schedule at "tomorrow, current time".
+  if (results.length > 0) {
+    if (hasExplicitTime(results[0])) return results[0].date();
+    // Pure date with no time — reject so the user gets an error
+    return null;
+  }
+  const moved = chrono.parse(moveLeadingTime(expanded));
+  if (moved.length > 0 && hasExplicitTime(moved[0])) return moved[0].date();
+  const withIn = chrono.parse(`in ${expanded}`);
+  if (withIn.length > 0 && hasExplicitTime(withIn[0])) return withIn[0].date();
+  return null;
 }
 
 module.exports = { parseCallFlag, expandTime, expandBareTime, moveLeadingTime, parseTime };

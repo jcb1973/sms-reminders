@@ -27,10 +27,10 @@ Runs on AWS Lightsail (Ubuntu 24.04, 2GB RAM) via Docker Compose.
 
 ```bash
 # On server
-git pull && docker-compose up -d --build
+git pull && docker compose up -d --build
 ```
 
-Use `docker-compose` (hyphenated) for all commands.
+Use `docker compose` (space, v2 plugin) for all commands.
 
 ## Environment variables (in .env on server, not committed)
 

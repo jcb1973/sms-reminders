@@ -41,7 +41,7 @@ The whole stack runs in Docker behind a Caddy reverse proxy with automatic HTTPS
 ## Running it
 
 ```bash
-cp .env.example .env  # add your Twilio creds and domain
+# Create .env with your Twilio creds, domain, and Redis host
 docker compose up -d
 ```
 
@@ -56,5 +56,5 @@ Point your Twilio phone number's webhook at `https://yourdomain.com/sms` and sta
 | `TWILIO_NUMBER` | Twilio phone number for SMS |
 | `TWILIO_CALL_NUMBER` | Twilio phone number for voice calls (optional) |
 | `REDIS_HOST` | Redis hostname (default: `redis` in Docker) |
-| `WEBHOOK_URL` | Public URL for Twilio voice call callbacks |
+| `WEBHOOK_URL` | Public URL for Twilio SMS webhook validation (e.g. `https://yourdomain.com/sms`) |
 | `DOMAIN` | Your domain for Caddy HTTPS |
