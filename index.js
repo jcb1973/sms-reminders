@@ -29,115 +29,128 @@ function twiml(message) {
   return `<Response><Message>${escapeXml(message)}</Message></Response>`;
 }
 
-app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }, process.env.TWILIO_TOKEN), async (req, res) => {
-  try {
-  console.log('Incoming SMS from', req.body.From, ':', req.body.Body);
-  const incomingSms = req.body.Body.trim();
-  const sender = req.body.From;
-
-  // Handle cancel command: "cancel <id>"
-  const cancelMatch = incomingSms.match(/^cancel\s+(.+)/i);
-  if (cancelMatch) {
-    const jobId = cancelMatch[1].trim();
-    const job = await reminderQueue.getJob(jobId);
-    if (job && job.data.to === sender) {
-      await job.remove();
-      console.log('Cancelled reminder', jobId);
-      return res.send(twiml(`Cancelled reminder "${job.data.message.replace('REMINDER: ', '')}".`));
-    }
-    return res.send(twiml(`No reminder found with ID ${jobId}.`));
+function validateCall(call) {
+  if (call && !process.env.TWILIO_CALL_NUMBER) {
+    return 'Voice calls are not configured. Remove !call and try again.';
   }
+  return null;
+}
 
-  // If this user has a pending task, treat this message as the time
+function scheduleJob(sender, task, call, targetDate) {
+  const delay = targetDate.getTime() - Date.now();
+  if (delay <= 0) return { error: 'That time is in the past. Try a future time like "5pm" or "in 2 hours".' };
+  return {
+    delay,
+    jobData: { to: sender, message: `REMINDER: ${task}`, call },
+    jobOpts: { delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } }
+  };
+}
+
+function confirmationMessage(method, task, targetDate, jobId) {
+  return `Got it. I'll ${method} you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${jobId}`;
+}
+
+async function handleCancel(sender, incomingSms) {
+  const cancelMatch = incomingSms.match(/^cancel\s+(.+)/i);
+  if (!cancelMatch) return null;
+  const jobId = cancelMatch[1].trim();
+  const job = await reminderQueue.getJob(jobId);
+  if (job && job.data.to === sender) {
+    await job.remove();
+    console.log('Cancelled reminder', jobId);
+    return twiml(`Cancelled reminder "${job.data.message.replace('REMINDER: ', '')}".`);
+  }
+  return twiml(`No reminder found with ID ${jobId}.`);
+}
+
+async function handlePendingReply(sender, incomingSms) {
   const pendingKey = `pending:${sender}`;
   const pendingTask = await redis.get(pendingKey);
-  if (pendingTask) {
-    const { text: timeInput, call } = parseCallFlag(incomingSms);
-    const targetDate = parseTime(timeInput);
-    if (!targetDate) {
-      console.log('Could not parse time for pending task:', incomingSms);
-      return res.send(twiml('I couldn\'t figure out that time. Try "5pm" or "in 2 hours".'));
-    }
-    const delay = targetDate.getTime() - Date.now();
-    if (delay <= 0) {
-      return res.send(twiml('That time is in the past. Try a future time like "5pm" or "in 2 hours".'));
-    }
-    if (call && !process.env.TWILIO_CALL_NUMBER) {
-      return res.send(twiml('Voice calls are not configured. Remove !call and try again.'));
-    }
-    const job = await reminderQueue.add('send-reminder', {
-      to: sender,
-      message: `REMINDER: ${pendingTask}`,
-      call
-    }, { delay: delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } });
-    await redis.del(pendingKey);
-    const method = call ? 'call' : 'remind';
-    console.log('Scheduled reminder', job.id, '- task:', pendingTask, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's', call ? '(call)' : '');
-    return res.send(twiml(`Got it. I'll ${method} you about "${pendingTask}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
+  if (!pendingTask) return null;
+
+  const { text: timeInput, call } = parseCallFlag(incomingSms);
+  const callErr = validateCall(call);
+  if (callErr) return twiml(callErr);
+
+  const targetDate = parseTime(timeInput);
+  if (!targetDate) {
+    console.log('Could not parse time for pending task:', incomingSms);
+    return twiml('I couldn\'t figure out that time. Try "5pm" or "in 2 hours".');
   }
 
-  // Handle list command
-  if (/^list$/i.test(incomingSms)) {
-    const jobs = await reminderQueue.getJobs(['delayed']);
-    const userJobs = jobs.filter(j => j.data.to === sender);
-    if (userJobs.length === 0) {
-      return res.send(twiml('You have no upcoming reminders.'));
-    }
-    const lines = userJobs.map(j => {
-      const task = j.data.message.replace('REMINDER: ', '');
-      const when = new Date(j.timestamp + j.delay).toLocaleString();
-      const mode = j.data.call ? ' (call)' : '';
-      return `- ${task}${mode} (${when}) [cancel ${j.id}]`;
-    });
-    return res.send(twiml(`Your reminders:\n${lines.join('\n')}`));
-  }
+  const sched = scheduleJob(sender, pendingTask, call, targetDate);
+  if (sched.error) return twiml(sched.error);
 
-  // FORMAT "Pick up dry cleaning : 5pm" or just "Pick up dry cleaning"
+  const job = await reminderQueue.add('send-reminder', sched.jobData, sched.jobOpts);
+  await redis.del(pendingKey);
+  const method = call ? 'call' : 'remind';
+  console.log('Scheduled reminder', job.id, '- task:', pendingTask, '- at:', targetDate.toISOString(), '- delay:', Math.round(sched.delay / 1000), 's', call ? '(call)' : '');
+  return twiml(confirmationMessage(method, pendingTask, targetDate, job.id));
+}
+
+async function handleList(sender, incomingSms) {
+  if (!/^list$/i.test(incomingSms)) return null;
+  const jobs = await reminderQueue.getJobs(['delayed']);
+  const userJobs = jobs.filter(j => j.data.to === sender);
+  if (userJobs.length === 0) {
+    return twiml('You have no upcoming reminders.');
+  }
+  const lines = userJobs.map(j => {
+    const task = j.data.message.replace('REMINDER: ', '');
+    const when = new Date(j.timestamp + j.delay).toLocaleString();
+    const mode = j.data.call ? ' (call)' : '';
+    return `- ${task}${mode} (${when}) [cancel ${j.id}]`;
+  });
+  return twiml(`Your reminders:\n${lines.join('\n')}`);
+}
+
+async function handleNewReminder(sender, incomingSms) {
   const lastColon = incomingSms.lastIndexOf(' : ');
   const task = (lastColon === -1 ? incomingSms : incomingSms.slice(0, lastColon)).trim();
   const timeStr = lastColon === -1 ? null : incomingSms.slice(lastColon + 3).trim() || null;
 
   if (!task) {
-    return res.send(twiml('Please include a reminder message. Format: "Pick up dry cleaning : 5pm"'));
+    return twiml('Please include a reminder message. Format: "Pick up dry cleaning : 5pm"');
   }
 
-  // No time provided — ask for it
   if (!timeStr) {
     await redis.set(`pending:${sender}`, task, 'EX', PENDING_TTL);
     console.log('Pending task for', sender, ':', task);
-    return res.send(twiml(`When should I remind you about "${task}"?`));
+    return twiml(`When should I remind you about "${task}"?`);
   }
 
-  // Try parsing as-is, then with "in " prefix for bare durations like "10 minutes"
   const { text: cleanTime, call } = parseCallFlag(timeStr);
-
-  if (call && !process.env.TWILIO_CALL_NUMBER) {
-    return res.send(twiml('Voice calls are not configured. Remove !call and try again.'));
-  }
+  const callErr = validateCall(call);
+  if (callErr) return twiml(callErr);
 
   const targetDate = parseTime(cleanTime);
-
   if (!targetDate) {
     console.log('Could not parse time:', timeStr);
-    return res.send(twiml('I couldn\'t figure out that time. Try "5pm" or "in 2 hours".'));
+    return twiml('I couldn\'t figure out that time. Try "5pm" or "in 2 hours".');
   }
 
-  const delay = targetDate.getTime() - Date.now();
+  const sched = scheduleJob(sender, task, call, targetDate);
+  if (sched.error) return twiml(sched.error);
 
-  if (delay <= 0) {
-    return res.send(twiml('That time is in the past. Try a future time like "5pm" or "in 2 hours".'));
-  }
-
-  // Schedule the job in Redis
-  const job = await reminderQueue.add('send-reminder', {
-    to: sender,
-    message: `REMINDER: ${task}`,
-    call
-  }, { delay: delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } });
-
+  const job = await reminderQueue.add('send-reminder', sched.jobData, sched.jobOpts);
   const method = call ? 'call' : 'remind';
-  console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(delay / 1000), 's', call ? '(call)' : '');
-  res.send(twiml(`Got it. I'll ${method} you about "${task}" at ${targetDate.toLocaleTimeString()}. To cancel, text: cancel ${job.id}`));
+  console.log('Scheduled reminder', job.id, '- task:', task, '- at:', targetDate.toISOString(), '- delay:', Math.round(sched.delay / 1000), 's', call ? '(call)' : '');
+  return twiml(confirmationMessage(method, task, targetDate, job.id));
+}
+
+app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }, process.env.TWILIO_TOKEN), async (req, res) => {
+  try {
+    console.log('Incoming SMS from', req.body.From, ':', req.body.Body);
+    const incomingSms = req.body.Body.trim();
+    const sender = req.body.From;
+
+    const response =
+      await handleCancel(sender, incomingSms) ||
+      await handlePendingReply(sender, incomingSms) ||
+      await handleList(sender, incomingSms) ||
+      await handleNewReminder(sender, incomingSms);
+
+    res.send(response);
   } catch (err) {
     console.error('Error handling SMS:', err);
     res.status(500).send(twiml('Something went wrong. Please try again.'));
