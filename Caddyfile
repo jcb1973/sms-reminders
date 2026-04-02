@@ -1,9 +1,14 @@
-jcbsms.duckdns.org {
+sms.jcb1973.dev {
     reverse_proxy app:3000
 }
 
-blestatus.duckdns.org {
+blestatus.jcb1973.dev {
     root * /var/www/ble-data
     file_server
     header /data/* Cache-Control "no-cache, must-revalidate"
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
 }
