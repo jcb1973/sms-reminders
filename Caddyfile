@@ -1,0 +1,9 @@
+jcbsms.duckdns.org {
+    reverse_proxy app:3000
+}
+
+blestatus.duckdns.org {
+    root * /var/www/ble-data
+    file_server
+    header /data/* Cache-Control "no-cache, must-revalidate"
+}
