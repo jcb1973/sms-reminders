@@ -9,6 +9,7 @@ services:
       - caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile 
       - /var/www/ble-data:/var/www/ble-data
+      - /home/linuxuser/src/ble-gateway/web/index.html:/var/www/ble-data/index.html:ro
   app:
     build: .
     init: true
