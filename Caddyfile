@@ -3,12 +3,12 @@ sms.jcb1973.dev {
 }
 
 blestatus.jcb1973.dev {
-    root * /var/www/ble-data
-    file_server
-    header /data/* Cache-Control "no-cache, must-revalidate"
-    tls {
-        issuer acme {
-            disable_tlsalpn_challenge
-        }
-    }
+      root * /var/www/ble-status
+      file_server
+      header /status.json Cache-Control "no-cache, must-revalidate"
+      tls {
+          issuer acme {
+              disable_tlsalpn_challenge
+          }
+      }
 }
