@@ -42,7 +42,7 @@ function scheduleJob(sender, task, call, targetDate) {
   return {
     delay,
     jobData: { to: sender, message: `REMINDER: ${task}`, call },
-    jobOpts: { delay, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } }
+    jobOpts: { delay, attempts: 3, backoff: { type: 'exponential', delay: 30000 }, removeOnComplete: { count: 10 }, removeOnFail: { count: 50 } }
   };
 }
 
