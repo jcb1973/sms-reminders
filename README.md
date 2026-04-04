@@ -1,6 +1,6 @@
 # sms-reminders
 
-A self-hosted SMS reminder service. Text it a task and a time in plain English — it schedules a reminder and texts (or calls) you back when it's due.
+A self-hosted SMS reminder service. Text it a task and a time in plain English — it schedules a reminder and texts (or calls) you back when it's due. Falls back to email if 3 attempts at SMS (or call) fail. 
 
 ## How it works
 
@@ -58,3 +58,14 @@ Point your Twilio phone number's webhook at `https://yourdomain.com/sms` and sta
 | `REDIS_HOST` | Redis hostname (default: `redis` in Docker) |
 | `WEBHOOK_URL` | Public URL for Twilio SMS webhook validation (e.g. `https://yourdomain.com/sms`) |
 | `DOMAIN` | Your domain for Caddy HTTPS |
+| `GMAIL_USER` | Gmail address for fallback email alerts (optional) |
+| `GMAIL_APP_PASSWORD` | Google app password for SMTP (optional) |
+| `ALERT_EMAIL_TO` | Recipient for fallback emails (optional) |
+| `STATUS_PASSWORD` | Password for basic auth on `/status` endpoint (optional) |
+
+## Reliability
+
+- **Retries:** Failed deliveries retry 3 times with exponential backoff (30s, 60s, 120s)
+- **Email fallback:** If all retries fail, sends the reminder via Gmail as a last resort
+- **Persistence:** Redis data is stored on a Docker volume with AOF enabled — reminders survive restarts and redeploys
+- **Monitoring:** `GET /status` shows all jobs and their state (requires basic auth: `admin`/your `STATUS_PASSWORD`)
