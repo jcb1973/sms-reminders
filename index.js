@@ -2,6 +2,7 @@ const express = require('express');
 const { Queue, Worker } = require('bullmq');
 const IORedis = require('ioredis');
 const twilio = require('twilio');
+const nodemailer = require('nodemailer');
 const { parseCallFlag, parseTime } = require('./parse');
 
 const requiredEnvVars = ['TWILIO_SID', 'TWILIO_TOKEN', 'TWILIO_NUMBER', 'REDIS_HOST', 'WEBHOOK_URL'];
@@ -19,6 +20,14 @@ const redisConnection = { host: process.env.REDIS_HOST };
 const redis = new IORedis(redisConnection);
 const reminderQueue = new Queue('reminders', { connection: redisConnection });
 const PENDING_TTL = 300; // 5 minutes
+
+const emailTransport = process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD
+  ? nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
+    })
+  : null;
 
 // Escape user input for safe inclusion in TwiML XML
 function escapeXml(str) {
@@ -188,8 +197,22 @@ const worker = new Worker('reminders', async job => {
   console.log('Reminder', job.id, 'sent successfully');
 }, { connection: redisConnection });
 
-worker.on('failed', (job, err) => {
-  console.error('Job', job?.id, 'failed:', err.message);
+worker.on('failed', async (job, err) => {
+  console.error('Job', job?.id, 'failed (attempt', `${job?.attemptsMade}/${job?.opts?.attempts}):`, err.message);
+  if (job && job.attemptsMade === job.opts.attempts && emailTransport && process.env.ALERT_EMAIL_TO) {
+    const task = job.data.message.replace('REMINDER: ', '');
+    try {
+      await emailTransport.sendMail({
+        from: process.env.GMAIL_USER,
+        to: process.env.ALERT_EMAIL_TO,
+        subject: `FAILED REMINDER: ${task}`,
+        text: `Your reminder failed after ${job.attemptsMade} attempts.\n\nTask: ${task}\nTo: ${job.data.to}\nScheduled for: ${new Date(job.timestamp + job.delay).toISOString()}\nError: ${err.message}`
+      });
+      console.log('Fallback email sent for job', job.id);
+    } catch (emailErr) {
+      console.error('Fallback email also failed for job', job.id, ':', emailErr.message);
+    }
+  }
 });
 
 app.listen(3000, () => console.log('Reminder service online on port 3000'));

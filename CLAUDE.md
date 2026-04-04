@@ -41,10 +41,14 @@ Use `docker compose` (space, v2 plugin) for all commands.
 - `WEBHOOK_URL` — full public URL for webhook validation (e.g. `https://domain/sms`)
 - `DOMAIN` — domain for Caddy TLS (used in docker-compose)
 - `REDIS_HOST` — set to `redis` in docker-compose
+- `GMAIL_USER` — (optional) Gmail address for fallback email alerts
+- `GMAIL_APP_PASSWORD` — (optional) Google app password for SMTP
+- `ALERT_EMAIL_TO` — (optional) recipient for fallback email when all retries fail
 
 ## Key implementation details
 
 - Twilio webhook validation: auth token must be passed as second positional arg to `twilio.webhook()`, not as an option — the SDK overwrites `options.authToken`
 - Voice calls use inline TwiML (`twiml` param on `client.calls.create()`), no separate endpoint needed
 - Job data: `{ to, message, call }` — `call: true` triggers voice instead of SMS
-- Worker has a `failed` event handler for logging BullMQ errors
+- Worker has a `failed` event handler that logs errors and sends a fallback email (via Gmail SMTP) on final failure
+- Jobs retry 3 times with exponential backoff (30s, 60s, 120s) before triggering the email fallback
