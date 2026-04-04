@@ -156,15 +156,20 @@ app.get('/status', (req, res, next) => {
   }
   next();
 }, async (req, res) => {
-  const jobs = await reminderQueue.getJobs(['delayed', 'waiting', 'active', 'completed', 'failed']);
-  res.json(jobs.map(j => ({
-    id: j.id,
-    to: j.data.to,
-    message: j.data.message,
-    call: !!j.data.call,
-    scheduledFor: new Date(j.timestamp + j.delay).toISOString(),
-    state: j.finishedOn ? (j.failedReason ? 'failed' : 'completed') : 'pending'
-  })));
+  try {
+    const jobs = await reminderQueue.getJobs(['delayed', 'waiting', 'active', 'completed', 'failed']);
+    res.json(jobs.map(j => ({
+      id: j.id,
+      to: j.data.to,
+      message: j.data.message,
+      call: !!j.data.call,
+      scheduledFor: new Date(j.timestamp + j.delay).toISOString(),
+      state: j.finishedOn ? (j.failedReason ? 'failed' : 'completed') : 'pending'
+    })));
+  } catch (err) {
+    console.error('Status endpoint error:', err.message);
+    res.status(503).json({ error: 'Service unavailable' });
+  }
 });
 
 app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }, process.env.TWILIO_TOKEN), async (req, res) => {
