@@ -138,6 +138,18 @@ async function handleNewReminder(sender, incomingSms) {
   return twiml(confirmationMessage(method, task, targetDate, job.id));
 }
 
+app.get('/status', async (req, res) => {
+  const jobs = await reminderQueue.getJobs(['delayed', 'waiting', 'active', 'completed', 'failed']);
+  res.json(jobs.map(j => ({
+    id: j.id,
+    to: j.data.to,
+    message: j.data.message,
+    call: !!j.data.call,
+    scheduledFor: new Date(j.timestamp + j.delay).toISOString(),
+    state: j.finishedOn ? (j.failedReason ? 'failed' : 'completed') : 'pending'
+  })));
+});
+
 app.post('/sms', twilio.webhook({ validate: true, url: process.env.WEBHOOK_URL }, process.env.TWILIO_TOKEN), async (req, res) => {
   try {
     console.log('Incoming SMS from', req.body.From, ':', req.body.Body);
