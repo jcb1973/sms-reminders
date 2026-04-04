@@ -44,6 +44,7 @@ Use `docker compose` (space, v2 plugin) for all commands.
 - `GMAIL_USER` — (optional) Gmail address for fallback email alerts
 - `GMAIL_APP_PASSWORD` — (optional) Google app password for SMTP
 - `ALERT_EMAIL_TO` — (optional) recipient for fallback email when all retries fail
+- `STATUS_PASSWORD` — (optional) password for basic auth on `/status` endpoint (username: `admin`)
 
 ## Key implementation details
 

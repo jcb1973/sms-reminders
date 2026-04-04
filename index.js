@@ -147,7 +147,15 @@ async function handleNewReminder(sender, incomingSms) {
   return twiml(confirmationMessage(method, task, targetDate, job.id));
 }
 
-app.get('/status', async (req, res) => {
+app.get('/status', (req, res, next) => {
+  if (!process.env.STATUS_PASSWORD) return res.status(403).send('Status endpoint not configured');
+  const auth = req.headers.authorization;
+  if (!auth || auth !== 'Basic ' + Buffer.from('admin:' + process.env.STATUS_PASSWORD).toString('base64')) {
+    res.set('WWW-Authenticate', 'Basic realm="status"');
+    return res.status(401).send('Unauthorized');
+  }
+  next();
+}, async (req, res) => {
   const jobs = await reminderQueue.getJobs(['delayed', 'waiting', 'active', 'completed', 'failed']);
   res.json(jobs.map(j => ({
     id: j.id,
