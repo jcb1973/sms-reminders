@@ -63,6 +63,38 @@ function inputFullyConsumed(input, results) {
   return !/[a-zA-Z]{2,}/.test(remainder);
 }
 
+// Strip a leading "remind me to/about/that" so confirmations don't echo it back
+function stripReminderPrefix(str) {
+  return str.replace(/^\s*remind\s+me\s+(to|about|that)\s+/i, '').trim();
+}
+
+// Try to extract a time from a natural-language message ("feed cats at 6pm").
+// Returns { task, date } if chrono finds an explicit time anchored at the end
+// of the message, else null. Intentionally does NOT run expandBareTime/expandTime
+// across the whole input — that would rewrite numbers inside the task body
+// (e.g. "call 911 at 5pm" must not become a 9:11 reminder). Shorthand like
+// "10m" is still available via the explicit ` : ` delimiter.
+function extractTimeFromMessage(str) {
+  const trimmed = str.trim();
+  const results = chrono.parse(trimmed);
+  if (results.length === 0) return null;
+  // Last match wins: in a natural sentence the trailing phrase is the time.
+  const r = results[results.length - 1];
+  if (!hasExplicitTime(r)) return null;
+  // Require the time phrase to sit at the end of the message (trailing
+  // punctuation is fine). This rejects ambiguous inputs like
+  // "meet tomorrow at 5 or 6" where the match leaves words behind.
+  const matchEnd = r.index + r.text.length;
+  const trailing = trimmed.slice(matchEnd).replace(/[\s.,!?]+$/, '');
+  if (trailing.length > 0) return null;
+  const task = trimmed.slice(0, r.index)
+    .replace(/\s+(at|on|by|@|,)\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!task) return null;
+  return { task, date: r.date() };
+}
+
 // Full pipeline: parse a user time string into a Date
 function parseTime(str) {
   const expanded = expandBareTime(expandTime(str));
@@ -96,4 +128,4 @@ function parseTime(str) {
   return null;
 }
 
-module.exports = { parseCallFlag, expandTime, expandBareTime, moveLeadingTime, parseTime };
+module.exports = { parseCallFlag, expandTime, expandBareTime, moveLeadingTime, parseTime, extractTimeFromMessage, stripReminderPrefix };

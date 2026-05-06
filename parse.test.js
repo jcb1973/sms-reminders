@@ -1,4 +1,4 @@
-const { expandTime, expandBareTime, moveLeadingTime, parseTime, parseCallFlag } = require('./parse');
+const { expandTime, expandBareTime, moveLeadingTime, parseTime, parseCallFlag, extractTimeFromMessage, stripReminderPrefix } = require('./parse');
 
 describe('expandBareTime', () => {
   test('converts 3-digit bare time', () => {
@@ -201,5 +201,78 @@ describe('parseTime', () => {
 
   test('bare "tomorrow" with no time returns null', () => {
     expect(parseTime('tomorrow')).toBeNull();
+  });
+});
+
+describe('stripReminderPrefix', () => {
+  test('strips "remind me to"', () => {
+    expect(stripReminderPrefix('Remind me to feed the cats')).toBe('feed the cats');
+  });
+
+  test('strips "remind me about"', () => {
+    expect(stripReminderPrefix('remind me about the meeting')).toBe('the meeting');
+  });
+
+  test('strips "remind me that"', () => {
+    expect(stripReminderPrefix('Remind me that taxes are due')).toBe('taxes are due');
+  });
+
+  test('leaves unrelated input untouched', () => {
+    expect(stripReminderPrefix('feed the cats')).toBe('feed the cats');
+    expect(stripReminderPrefix('Remind John to call me')).toBe('Remind John to call me');
+  });
+});
+
+describe('extractTimeFromMessage', () => {
+  test('extracts time at end of sentence with "at"', () => {
+    const r = extractTimeFromMessage('Remind me to feed the cats at 6pm');
+    expect(r).not.toBeNull();
+    expect(r.task).toBe('Remind me to feed the cats');
+    expect(r.date.getHours()).toBe(18);
+    expect(r.date.getMinutes()).toBe(0);
+  });
+
+  test('extracts time at end of sentence without preposition', () => {
+    const r = extractTimeFromMessage('feed the cats 6pm');
+    expect(r).not.toBeNull();
+    expect(r.task).toBe('feed the cats');
+    expect(r.date.getHours()).toBe(18);
+  });
+
+  test('extracts "in N minutes" pattern', () => {
+    const r = extractTimeFromMessage('Call mom in 10 minutes');
+    expect(r).not.toBeNull();
+    expect(r.task).toBe('Call mom');
+  });
+
+  test('returns null when no explicit time', () => {
+    expect(extractTimeFromMessage('Pick up laundry')).toBeNull();
+    expect(extractTimeFromMessage('Call mom tomorrow')).toBeNull();
+  });
+
+  test('returns null when only a time and no task', () => {
+    expect(extractTimeFromMessage('5pm')).toBeNull();
+  });
+
+  test('preserves digits inside the task body', () => {
+    const r = extractTimeFromMessage('call 911 at 5pm');
+    expect(r).not.toBeNull();
+    expect(r.task).toBe('call 911');
+    expect(r.date.getHours()).toBe(17);
+  });
+
+  test('preserves multi-digit IDs inside the task body', () => {
+    const r = extractTimeFromMessage('pay invoice 1234 tomorrow at 5pm');
+    expect(r).not.toBeNull();
+    expect(r.task).toBe('pay invoice 1234');
+    expect(r.date.getHours()).toBe(17);
+  });
+
+  test('rejects ambiguous input where time is not at the end', () => {
+    expect(extractTimeFromMessage('meet me tomorrow at 5 or 6')).toBeNull();
+  });
+
+  test('rejects when a leading number could be the time', () => {
+    expect(extractTimeFromMessage('9am call')).toBeNull();
   });
 });

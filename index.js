@@ -3,7 +3,7 @@ const { Queue, Worker } = require('bullmq');
 const IORedis = require('ioredis');
 const twilio = require('twilio');
 const nodemailer = require('nodemailer');
-const { parseCallFlag, parseTime } = require('./parse');
+const { parseCallFlag, parseTime, extractTimeFromMessage, stripReminderPrefix } = require('./parse');
 
 const requiredEnvVars = ['TWILIO_SID', 'TWILIO_TOKEN', 'TWILIO_NUMBER', 'REDIS_HOST', 'WEBHOOK_URL'];
 for (const envVar of requiredEnvVars) {
@@ -74,10 +74,16 @@ async function handleCancel(sender, incomingSms) {
 
 async function handlePendingReply(sender, incomingSms) {
   const pendingKey = `pending:${sender}`;
-  const pendingTask = await redis.get(pendingKey);
-  if (!pendingTask) return null;
+  const raw = await redis.get(pendingKey);
+  if (!raw) return null;
+  let pending;
+  try { pending = JSON.parse(raw); } catch { return null; }
+  const pendingTask = pending.task;
+  const pendingCall = !!pending.call;
 
-  const { text: timeInput, call } = parseCallFlag(incomingSms);
+  const { text: timeInput, call: replyCall } = parseCallFlag(incomingSms);
+  // Follow-up can opt INTO !call but the original flag survives if not repeated.
+  const call = replyCall || pendingCall;
   const callErr = validateCall(call);
   if (callErr) return twiml(callErr);
 
@@ -114,28 +120,42 @@ async function handleList(sender, incomingSms) {
 }
 
 async function handleNewReminder(sender, incomingSms) {
-  const lastColon = incomingSms.lastIndexOf(' : ');
-  const task = (lastColon === -1 ? incomingSms : incomingSms.slice(0, lastColon)).trim();
-  const timeStr = lastColon === -1 ? null : incomingSms.slice(lastColon + 3).trim() || null;
+  const { text: cleaned, call } = parseCallFlag(incomingSms);
+  const callErr = validateCall(call);
+  if (callErr) return twiml(callErr);
+
+  let task, targetDate;
+  const lastColon = cleaned.lastIndexOf(' : ');
+  if (lastColon !== -1) {
+    task = cleaned.slice(0, lastColon).trim();
+    const timeStr = cleaned.slice(lastColon + 3).trim();
+    if (timeStr) {
+      targetDate = parseTime(timeStr);
+      if (!targetDate) {
+        console.log('Could not parse time:', timeStr);
+        return twiml('I couldn\'t figure out that time. Try "5pm" or "in 2 hours".');
+      }
+    }
+  } else {
+    const extracted = extractTimeFromMessage(cleaned);
+    if (extracted) {
+      task = extracted.task;
+      targetDate = extracted.date;
+    } else {
+      task = cleaned.trim();
+    }
+  }
+
+  task = stripReminderPrefix(task);
 
   if (!task) {
     return twiml('Please include a reminder message. Format: "Pick up dry cleaning : 5pm"');
   }
 
-  if (!timeStr) {
-    await redis.set(`pending:${sender}`, task, 'EX', PENDING_TTL);
-    console.log('Pending task for', sender, ':', task);
-    return twiml(`When should I remind you about "${task}"?`);
-  }
-
-  const { text: cleanTime, call } = parseCallFlag(timeStr);
-  const callErr = validateCall(call);
-  if (callErr) return twiml(callErr);
-
-  const targetDate = parseTime(cleanTime);
   if (!targetDate) {
-    console.log('Could not parse time:', timeStr);
-    return twiml('I couldn\'t figure out that time. Try "5pm" or "in 2 hours".');
+    await redis.set(`pending:${sender}`, JSON.stringify({ task, call }), 'EX', PENDING_TTL);
+    console.log('Pending task for', sender, ':', task, call ? '(call)' : '');
+    return twiml(`When should I remind you about "${task}"?`);
   }
 
   const sched = scheduleJob(sender, task, call, targetDate);

@@ -12,9 +12,10 @@ Single-file Node.js app (`index.js`) that lets you schedule reminders via SMS. T
 
 ## SMS format
 
-- `Task : time` — e.g. `Pick up laundry : 5pm`
-- `Task : time !call` — delivers reminder as a phone call instead of SMS
-- Just `Task` — app asks for time in a follow-up (multi-turn, stored in Redis with 5min TTL)
+- Natural language — e.g. `Remind me to feed the cats at 6pm` (chrono extracts the time, leading "remind me to/about/that" is stripped)
+- `Task : time` — explicit delimiter, e.g. `Pick up laundry : 5pm` (use this when natural-language extraction picks the wrong span)
+- `!call` flag (anywhere in message) — delivers reminder as a phone call instead of SMS
+- Just `Task` (no time) — app asks for time in a follow-up (multi-turn, stored in Redis with 5min TTL)
 - `list` — shows pending reminders
 - `cancel <id>` — cancels a reminder
 - Shorthand times: `10m`, `2h`, `30s`, `1d`
