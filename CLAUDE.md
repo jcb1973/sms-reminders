@@ -24,7 +24,7 @@ Single-file Node.js app (`index.js`) that lets you schedule reminders via SMS. T
 
 ## Deployment
 
-Runs on AWS Lightsail (Ubuntu 24.04, 2GB RAM) via Docker Compose.
+Runs on Vultr (Ubuntu 24.04, 2GB RAM) via Docker Compose.
 
 ```bash
 # On server
