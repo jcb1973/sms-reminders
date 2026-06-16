@@ -275,4 +275,31 @@ describe('extractTimeFromMessage', () => {
   test('rejects when a leading number could be the time', () => {
     expect(extractTimeFromMessage('9am call')).toBeNull();
   });
+
+  test('extracts bare clock time before a date word ("0900 tomorrow")', () => {
+    const r = extractTimeFromMessage('call ferry 0900 tomorrow');
+    expect(r).not.toBeNull();
+    expect(r.task).toBe('call ferry');
+    expect(r.date.getHours()).toBe(9);
+    expect(r.date.getMinutes()).toBe(0);
+  });
+
+  test('extracts bare 4-digit clock time before a date word ("1430 tomorrow")', () => {
+    const r = extractTimeFromMessage('ferry 1430 tomorrow');
+    expect(r).not.toBeNull();
+    expect(r.task).toBe('ferry');
+    expect(r.date.getHours()).toBe(14);
+    expect(r.date.getMinutes()).toBe(30);
+  });
+
+  test('extracts bare clock time after a date word ("tomorrow 0900")', () => {
+    const r = extractTimeFromMessage('feed cats tomorrow 0900');
+    expect(r).not.toBeNull();
+    expect(r.task).toBe('feed cats');
+    expect(r.date.getHours()).toBe(9);
+  });
+
+  test('does not treat a bare number as time without an adjacent date word', () => {
+    expect(extractTimeFromMessage('pay invoice 1430')).toBeNull();
+  });
 });

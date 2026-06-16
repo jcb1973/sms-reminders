@@ -74,8 +74,7 @@ function stripReminderPrefix(str) {
 // across the whole input — that would rewrite numbers inside the task body
 // (e.g. "call 911 at 5pm" must not become a 9:11 reminder). Shorthand like
 // "10m" is still available via the explicit ` : ` delimiter.
-function extractTimeFromMessage(str) {
-  const trimmed = str.trim();
+function pickEndTime(trimmed) {
   const results = chrono.parse(trimmed);
   if (results.length === 0) return null;
   // Last match wins: in a natural sentence the trailing phrase is the time.
@@ -93,6 +92,38 @@ function extractTimeFromMessage(str) {
     .trim();
   if (!task) return null;
   return { task, date: r.date() };
+}
+
+// A bare clock number ("0900", "1430") is invisible to chrono, so a message
+// like "call ferry 0900 tomorrow" parses only as "tomorrow" (no time). When the
+// number sits directly adjacent to chrono's date phrase, expand just that token
+// so it combines into a real time. Adjacency (whitespace only) is what keeps a
+// genuine time apart from a quantity/ID like "pay invoice 1430".
+function expandAdjacentClock(str) {
+  const results = chrono.parse(str);
+  if (results.length === 0) return str;
+  const r = results[results.length - 1];
+  const end = r.index + r.text.length;
+  // Right before the date phrase: "0900 tomorrow"
+  const bm = str.slice(0, r.index).match(/\b(\d{1,2}\d{2})(\s*)$/);
+  if (bm) {
+    return str.slice(0, bm.index) + expandBareTime(bm[1]) + bm[2] + str.slice(r.index);
+  }
+  // Right after the date phrase: "tomorrow 0900"
+  const am = str.slice(end).match(/^\s*(\d{1,2}\d{2})\b/);
+  if (am) {
+    return str.slice(0, end) + am[0].replace(am[1], expandBareTime(am[1])) + str.slice(end + am[0].length);
+  }
+  return str;
+}
+
+function extractTimeFromMessage(str) {
+  const trimmed = str.trim();
+  const direct = pickEndTime(trimmed);
+  if (direct) return direct;
+  // Retry once for bare clock times chrono can't see on its own.
+  const expanded = expandAdjacentClock(trimmed);
+  return expanded !== trimmed ? pickEndTime(expanded) : null;
 }
 
 // Full pipeline: parse a user time string into a Date
