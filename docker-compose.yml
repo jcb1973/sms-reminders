@@ -10,6 +10,11 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile 
       - /var/www/ble-data:/var/www/ble-data
       - /home/linuxuser/src/ble-gateway/web/index.html:/var/www/ble-data/index.html:ro
+      - /var/www/guitar-watch:/var/www/guitar-watch
+      - /var/www/boat-watch:/var/www/boat-watch
+      - /var/www/co2-data:/var/www/co2-data
+      - /var/www/index:/var/www/index
+      - /var/www/jobhunt:/var/www/jobhunt:ro
   app:
     build: .
     init: true

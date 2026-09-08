@@ -12,3 +12,71 @@ blestatus.jcb1973.dev {
           }
       }
 }
+
+guitarwatch.jcb1973.dev {
+    root * /var/www/guitar-watch
+    file_server
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
+}
+
+boatwatch.jcb1973.dev {
+    root * /var/www/boat-watch
+    file_server
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
+}
+
+co2.jcb1973.dev {
+    root * /var/www/co2-data
+      file_server
+      header /status.json Cache-Control "no-cache, must-revalidate"
+      tls {
+          issuer acme {
+              disable_tlsalpn_challenge
+          }
+      }
+}
+
+sign.jcb1973.dev {
+    @ro method GET HEAD
+    handle @ro {
+        reverse_proxy 172.18.0.1:8091
+    }
+    handle {
+        respond "read-only" 405
+    }
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
+}
+
+jobhunt.jcb1973.dev {
+    root * /var/www/jobhunt
+    file_server
+    header Cache-Control "no-cache, must-revalidate"
+    header X-Robots-Tag "noindex, nofollow"
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
+}
+
+jcb1973.dev, www.jcb1973.dev {
+    root * /var/www/index
+    file_server
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
+}
